@@ -1,0 +1,10 @@
+*.form
+out.html
+out.py
+out.project
+out.req
+out.dbpwd
+out.ip
+_*
+.gcloudignore
+funforms-results.csv

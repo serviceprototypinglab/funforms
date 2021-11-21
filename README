@@ -1,0 +1,57 @@
+FunForms - Serverless surveys through function-based web forms
+Josef Spillner <josef.spillner@zhaw.ch>
+Zurich University of Applied Sciences
+
+FunForms is a simple framework to build and (no-)operate simple
+form-based surveys. It currently relies on Google Cloud Functions.
+Simply create a form file following the syntax below, and then run
+'funforms activate <file>' followed anytime by 'funforms stats'. You can
+also run 'formforms activatelocal <file>' for testing. Any activated
+survey can be terminated with 'funforms deactivate'.
+
+This is presumably a higher form of FaaSification...
+
+----- 8< -----
+
+input	Name
+text	Your opinion?
+1-5	Your rating?
+
+--------------
+
+The cost for cloud functions is negligible.
+The cost for MySQL is around 9 US$ per month on db-f1-micro.
+Support for campaigns could reduce that significantly.
+
+Usage:
+
+https://europe-west6-funforms-xxxx.cloudfunctions.net/funforms
+https://europe-west6-funforms-xxxx.cloudfunctions.net/funforms?stats
+
+Limitations:
+
+* No support for campaigns. A campaign would have a defined time limit,
+  send survey results by the end of the survey, and tear down at least
+  the expensive component, the database (potentially backing up data to
+  cloud storage before). Currently, surveys need to be deactivated
+  manually.
+
+* No advanced privacy support. Through stealth coding, HE/OPE etc.
+  certain analytics would remain possible while not having any data at
+  rest in the clear.
+
+* No advanced analytics, both on numerical and textual inputs, such as
+  word frequency, choices ranking and origin tracking.
+
+* No support for resource pooling. To drive cost down, database
+  instances could be shared between surveys, or -- as a more general
+  framework -- even between multiple different function-based
+  applications.
+
+* Limited to a single cloud provider, with non-automated setup of gcloud
+  tooling as well as assumption about local mysql client.
+
+* Code quality - OOP, fault tolerance, bailouts etc.
+
+* Database credentials are generated in the clear within the survey
+  function.

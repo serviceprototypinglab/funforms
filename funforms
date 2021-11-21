@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+
+import sys
+import base64
+import os
+import random
+import shutil
+
+region = "europe-west6"
+
+def activate(ff, local=False):
+    f = open("out.html", "w")
+
+    def fprint(s):
+        print(s, file=f)
+
+    fprint("<html><head>FunForms Survey<title></title></head><body>")
+    fprint("<form action='/funforms' method='post'>")
+
+    d = {}
+    dn = {}
+
+    c = 0
+    for line in open(ff):
+        c += 1
+        ltype, *lcontent = line.strip().split()
+        lcontent = " ".join(lcontent)
+        print(ltype, lcontent)
+
+        d[c] = lcontent
+
+        fprint(f"{lcontent}<br>")
+        if ltype == "input":
+            fprint(f"<input name='f{c}' size=40><br>")
+        elif ltype == "text":
+            fprint(f"<textarea name='f{c}' cols=40 rows=20></textarea><br>")
+        else:
+            beg, end = ltype.split("-")
+            fprint(f"<select name='f{c}'>")
+            for i in range(int(beg), int(end) + 1):
+                fprint(f"<option>{i}</option>")
+            fprint(f"</select>")
+
+    fprint(f"<br><input type='submit' value='Submit'><br>")
+    fprint("</form>")
+    fprint("</body></html>")
+    f.close()
+
+    b64 = base64.b64encode(open("out.html").read().encode("utf-8")).decode()
+
+    if not local:
+        pwd = open("out.dbpwd").read().strip()
+        fid = open("out.project").read().strip()
+    else:
+        pwd = "(LOCAL)"
+        fid = "(LOCAL)"
+
+    f = open("out.py", "w")
+    fprint("import base64")
+    fprint(f"form = '{b64}'")
+
+    fprint("def connect():")
+    fprint("  import sqlalchemy")
+    fprint("  pool = sqlalchemy.create_engine(")
+    fprint("    sqlalchemy.engine.url.URL.create(")
+    fprint("        drivername='mysql+pymysql',")
+    fprint("        username='root',")
+    fprint(f"        password='{pwd}',")
+    fprint("        database='fundata',")
+    fprint(f"        query={{'unix_socket': '/cloudsql/funforms-{fid}:{region}:funsql'}}")
+    fprint("    )")
+    fprint("  )")
+    fprint("  conn = pool.connect()")
+    s = ""
+    dn = ""
+    for k in d:
+        tn = "".join(c for c in d[k] if c.isalpha())
+        if s:
+            s += ", "
+            dn += ", "
+        s += tn
+        dn += tn
+        s += " varchar(256)"
+    fprint(f"  conn.execute('CREATE TABLE IF NOT EXISTS autoform ({s});')")
+    fprint("  return conn")
+
+    fprint("def statistics():")
+    fprint("  conn = connect()")
+    fprint("  rows = conn.execute('SELECT * FROM autoform;')")
+    fprint("  s = ''")
+    fprint("  for row in rows:")
+    fprint("    for col in row:")
+    fprint("      s += f'{col:20}'")
+    fprint("    s += '\\n'")
+    fprint("  ct = {'Content-Type': 'text/plain'}")
+    fprint("  return (s, 200, ct)")
+
+    fprint("def hello(params):")
+    fprint("  if params.args.get('stats') is not None:")
+    fprint("    return statistics()")
+    fprint("  data = params.get_data()")
+    fprint("  if data:")
+    fprint("    data = data.decode().split('&')")
+    fprint("    s = ''")
+    fprint("    d = {}")
+    fprint("    cn = ''")
+    fprint("    cv = ''")
+    for k in d:
+        fprint(f"    d['f{k}'] = '{d[k]}'")
+    fprint("    for kv in data:")
+    fprint("      k, v = kv.split('=')")
+    fprint("      k = d[k]")
+    fprint("      s += '/' + k + '=' + v")
+    fprint("      if cv:")
+    fprint("        cv += ', '")
+    fprint("      cv += '\\\'' + v.replace('\\\'', '') + '\\\''")
+    fprint("    conn = connect()")
+    fprint(f"    conn.execute('INSERT INTO autoform ({dn}) VALUES (' + cv + ');')")
+    fprint("    return 'Thank you for your contribution. Submitted:' + s")
+    fprint("  else:")
+    fprint("    return base64.b64decode(form).decode()")
+    f.close()
+
+    print("Serverless survey files generated.")
+
+def activate_prepare():
+    ret = os.system("gcloud auth list 2>&1 | grep -q ACTIVE")
+    if ret:
+        exit("GCloud tool (including 'beta') not installed or not authenticated. Fix this first.")
+
+    if os.path.isfile("out.project"):
+        return
+
+    fid = random.randrange(10000, 99999)
+    f = open("out.project", "w")
+    print(fid, file=f)
+    f.close()
+
+    os.system(f"gcloud projects create funforms-{fid} --name funforms")
+    os.system(f"gcloud config set project funforms-{fid}")
+
+    os.system(f"gcloud beta billing projects link funforms-{fid} --billing-account=`gcloud beta billing accounts list | grep True | head -1 | cut -d ' ' -f 1`")
+    os.system("gcloud services enable cloudfunctions.googleapis.com")
+    os.system("gcloud services enable cloudbuild.googleapis.com")
+    os.system("gcloud services enable sqladmin.googleapis.com")
+
+    pwd = "ff" + str(random.randrange(100000, 999999))
+    f = open("out.dbpwd", "w")
+    print(pwd, file=f)
+    f.close()
+
+    os.system(f"gcloud sql instances create funsql --database-version=MYSQL_5_7 --tier=db-f1-micro --region={region} --root-password={pwd}")
+    os.system("gcloud sql databases create fundata --instance=funsql")
+
+    f = open("out.req", "w")
+    print("SQLAlchemy==1.4.27", file=f)
+    print("PyMySQL==1.0.2", file=f)
+    f.close()
+
+    print("Serverless survey project resources prepared.")
+
+def activate_deploy():
+    fid = open("out.project").read().strip()
+
+    os.system(f"gcloud config set project funforms-{fid}")
+
+    if os.path.isdir(f"/tmp/funforms-{fid}"):
+        shutil.rmtree(f"/tmp/funforms-{fid}")
+    os.mkdir(f"/tmp/funforms-{fid}")
+    shutil.copy("out.py", f"/tmp/funforms-{fid}/main.py")
+    shutil.copy("out.req", f"/tmp/funforms-{fid}/requirements.txt")
+    os.system(f"gcloud functions deploy funforms --region={region} --trigger-http --runtime python39 --allow-unauthenticated --source /tmp/funforms-{fid} --entry-point hello")
+
+    print("Serverless survey deployed:")
+    print(f"https://{region}-funforms-{fid}.cloudfunctions.net/funforms")
+
+if len(sys.argv) < 2:
+	exit("Consult the readme file on commands.")
+
+if sys.argv[1] == "activate":
+    if len(sys.argv) == 3:
+        formfile = sys.argv[2]
+        activate_prepare()
+        activate(formfile)
+        activate_deploy()
+    else:
+        exit("Consult the readme file on form files.")
+
+if sys.argv[1] == "activatelocal":
+    if len(sys.argv) == 3:
+        formfile = sys.argv[2]
+        activate(formfile, local=True)
+    else:
+        exit("Consult the readme file on form files.")
+
+if sys.argv[1] == "deactivate":
+    if not os.path.isfile("out.project"):
+        exit("Deactivation is only possible after activation.")
+    fid = open("out.project").read().strip()
+    print("### After entering password, quit the MySQL instance with Ctrl+D!")
+    pwd = open("out.dbpwd").read().strip()
+    print(f"({pwd})")
+
+    # connection name: gcloud sql instances describe funsql | grep connectionName | awk '{print $2}'
+    os.system("gcloud sql instances list | tail -1 | awk '{print $5}' > out.ip")
+    sqlip = open("out.ip").read().strip()
+
+    os.system("gcloud sql connect funsql --user=root")
+    os.system(f"mysql --host={sqlip} --user=root --password --database=fundata --batch --execute 'SELECT * FROM autoform' > funforms-results.csv")
+    os.system("gcloud sql instances delete funsql --quiet")
+    os.system(f"gcloud functions delete funforms --region {region} --quiet")
+    os.system(f"gcloud projects delete funforms-{fid} --quiet")
+
+    os.unlink("out.ip")
+    os.unlink("out.project")
+    os.unlink("out.py")
+    os.unlink("out.dbpwd")
+    os.unlink("out.html")
+    os.unlink("out.req")
+
+    print("Serverless survey finished. Results are in 'funforms-results.csv'.")
+
+if sys.argv[1] == "stats":
+    if not os.path.isfile("out.project"):
+        exit("Statistics are only possible after activation.")
+    fid = open("out.project").read().strip()
+    print("Statistics not yet implemented in the CLI. Please visit the website.")
+    print(f"https://{region}-funforms-{fid}.cloudfunctions.net/funforms?stats")
