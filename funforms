@@ -74,7 +74,8 @@ def activate(ff, local=False):
     s = ""
     dn = ""
     for k in d:
-        tn = "".join(c for c in d[k] if c.isalpha())
+        dkshort = d[k].split("(")[0]
+        tn = "".join(c for c in dkshort.lower() if c.isalpha())
         if s:
             s += ", "
             dn += ", "
@@ -173,6 +174,12 @@ def activate_deploy():
 
     print("Serverless survey deployed:")
     print(f"https://{region}-funforms-{fid}.cloudfunctions.net/funforms")
+
+    try:
+        import qrcode
+        qrcode.run_example(data=f"https://{region}-funforms-{fid}.cloudfunctions.net/funforms")
+    except:
+        pass
 
 if len(sys.argv) < 2:
 	exit("Consult the readme file on commands.")
